@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sophon-py"
+version = "0.1.0"
+description = "A Python port of Hi3Helper.Sophon - Sophon-compatible library for downloading HoYoverse games"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Sophon.py Contributors", email = "butter@studiobutter.io.vn"}
+]
+requires-python = ">=3.9"
+keywords = ["sophon", "hoyo", "genshin", "download", "async"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "aiohttp>=3.8.0",
+    "protobuf>=3.20.0",
+    "zstandard>=0.19.0",
+    "pydantic>=2.0.0",
+    "xxhash>=3.0.0",
+    "aiofiles>=23.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+    "isort>=5.12.0",
+]
+
+docs = [
+    "sphinx>=6.0.0",
+    "sphinx-rtd-theme>=1.2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/CollapseLauncher/Sophon.py"
+Repository = "https://github.com/CollapseLauncher/Sophon.py.git"
+Documentation = "https://sophon-py.readthedocs.io"
+Issues = "https://github.com/CollapseLauncher/Sophon.py/issues"
+
+[tool.setuptools]
+packages = ["sophon"]
+
+[tool.setuptools.package-data]
+sophon = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+select = ["E", "F", "W", "I", "N", "UP"]
+ignore = ["E501"]
+
+[tool.isort]
+profile = "black"
+multi_line_mode = 3
+line_length = 100
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
