@@ -3,7 +3,7 @@ Sophon protocol implementation in Python
 
 > [!IMPORTANT]  
 > This project should only be used for reference as the entire project is AI Generated. It s advised that Developers should handle their own implementation and recreate the project from blank.
-> The reason I'm saying this because many developers may not like AI Generated codes on their work.
+> The reason I'm saying this because many developers may not like AI Generated codes on their work. As such, this project is archived to prevent any code changes.
 
 ## Project Structure
 
