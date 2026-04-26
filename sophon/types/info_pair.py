@@ -1,11 +1,11 @@
 """Manifest and chunks info pair structure."""
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, List
+from typing import Optional
 
 from . import IdentifiableProperty
-from .manifest_info import SophonManifestInfo
 from .chunks_info import SophonChunksInfo
+from .manifest_info import SophonManifestInfo
 
 
 @dataclass
@@ -14,7 +14,7 @@ class SophonManifestBuildData(IdentifiableProperty):
 
     build_id: Optional[str] = None
     tag_name: Optional[str] = None
-    manifest_identity_list: List = field(default_factory=list)
+    manifest_identity_list: list = field(default_factory=list)
 
 
 @dataclass
@@ -24,7 +24,7 @@ class SophonManifestPatchData(IdentifiableProperty):
     build_id: Optional[str] = None
     tag_name: Optional[str] = None
     patch_id: Optional[str] = None
-    manifest_identity_list: List = field(default_factory=list)
+    manifest_identity_list: list = field(default_factory=list)
 
 
 @dataclass

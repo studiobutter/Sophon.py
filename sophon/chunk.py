@@ -1,9 +1,9 @@
 """Chunk structure and utilities."""
 
-from dataclasses import dataclass, field
-from typing import Optional, BinaryIO
-import hashlib
 import asyncio
+import hashlib
+from dataclasses import dataclass
+from typing import BinaryIO, Optional
 
 
 @dataclass
@@ -43,24 +43,24 @@ class SophonChunk:
             True if hash matches, False otherwise.
         """
         md5_hash = hashlib.md5()
-        
+
         if verify_from_offset:
             stream.seek(self.chunk_offset)
-        
+
         bytes_read = 0
         while bytes_read < self.chunk_size_decompressed:
             to_read = min(self.BUFFER_SIZE, self.chunk_size_decompressed - bytes_read)
             data = stream.read(to_read)
-            
+
             if not data:
                 return False
-            
+
             md5_hash.update(data)
             bytes_read += len(data)
-            
+
             # Allow other tasks to run
             await asyncio.sleep(0)
-        
+
         return md5_hash.digest() == self.chunk_hash_decompressed
 
 

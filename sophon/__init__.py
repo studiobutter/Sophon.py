@@ -9,16 +9,16 @@ __author__ = "Sophon.py Contributors"
 __license__ = "MIT"
 
 from .asset import SophonAsset
-from .manifest import SophonManifest
-from .update import SophonUpdate
-from .patch import SophonPatch, SophonPatchAsset
-from .speed_limiter import SophonDownloadSpeedLimiter
 from .exceptions import (
-    SophonException,
-    ManifestNotFoundError,
     ChunkVerificationError,
     DownloadError,
+    ManifestNotFoundError,
+    SophonException,
 )
+from .manifest import SophonManifest
+from .patch import SophonPatch, SophonPatchAsset
+from .speed_limiter import SophonDownloadSpeedLimiter
+from .update import SophonUpdate
 
 __all__ = [
     "SophonAsset",

@@ -1,7 +1,6 @@
 """Manifest information structures."""
 
 from dataclasses import dataclass
-from typing import Optional
 
 from . import IdentifiableProperty
 

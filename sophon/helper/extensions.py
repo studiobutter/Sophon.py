@@ -1,8 +1,8 @@
 """Extension utilities for Sophon library."""
 
 import hashlib
+
 import xxhash
-from typing import Optional
 
 
 def hex_to_bytes(hex_string: str) -> bytes:
@@ -68,10 +68,10 @@ def format_bytes(num_bytes: int) -> str:
         Human-readable size string.
     """
     size_suffixes = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"]
-    
+
     for suffix in size_suffixes:
         if num_bytes < 1024.0:
             return f"{num_bytes:.2f} {suffix}"
         num_bytes /= 1024.0
-    
+
     return f"{num_bytes:.2f} YB"

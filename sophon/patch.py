@@ -1,17 +1,21 @@
 """SophonPatch for handling game patches and updates using HDiffPatch."""
 
-from dataclasses import dataclass, field
-from typing import Optional, Callable, List, AsyncIterator
-from enum import Enum
 import asyncio
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from enum import Enum
+from typing import TYPE_CHECKING, Callable, Optional
+
+if TYPE_CHECKING:
+    from .asset import SophonAsset
+
 import aiohttp
 
-from .chunk import SophonChunk
 from .speed_limiter import SophonDownloadSpeedLimiter
 from .types import (
     IdentifiableProperty,
-    SophonChunksInfo,
     SophonChunkManifestInfoPair,
+    SophonChunksInfo,
 )
 
 
@@ -141,8 +145,47 @@ class SophonPatch:
             ValueError: If version tag not found.
             aiohttp.ClientError: If HTTP request fails.
         """
-        # TODO: Implement patch enumeration logic
-        yield  # Placeholder to make this an async generator
+        if not patch_info_pair or not patch_info_pair.manifest_info:
+            return
+
+        manifest_url = patch_info_pair.manifest_info.manifest_file_url
+        async with http_client.get(manifest_url) as response:
+            response.raise_for_status()
+            data = await response.read()
+
+        if patch_info_pair.manifest_info.is_use_compression:
+            import zstandard
+            dctx = zstandard.ZstdDecompressor()
+            data = dctx.decompress(data)
+
+        from .proto.SophonPatchProto_pb2 import SophonPatchProto
+        patch_proto = SophonPatchProto()
+        patch_proto.ParseFromString(data)
+
+        for patch_prop in patch_proto.PatchAssets:
+            target_chunk = None
+            for info in patch_prop.AssetInfos:
+                if info.VersionTag == version_tag_update_from:
+                    target_chunk = info.Chunk
+                    break
+
+            if not target_chunk:
+                continue
+
+            yield SophonPatchAsset(
+                patch_name_source=target_chunk.PatchName,
+                patch_hash=target_chunk.PatchMd5,
+                patch_offset=target_chunk.PatchOffset,
+                patch_size=target_chunk.PatchSize,
+                patch_chunk_length=target_chunk.PatchLength,
+                original_file_path=target_chunk.OriginalFileName,
+                original_file_hash=target_chunk.OriginalFileMd5,
+                original_file_size=target_chunk.OriginalFileLength,
+                target_file_path=patch_prop.AssetName,
+                target_file_hash=patch_prop.AssetHashMd5,
+                target_file_size=patch_prop.AssetSize,
+                patch_method=SophonPatchMethod.PATCH
+            )
 
     @staticmethod
     async def create_chunk_manifest_info_pair(
@@ -169,5 +212,62 @@ class SophonPatch:
             ValueError: If URL or version invalid.
             aiohttp.ClientError: If HTTP request fails.
         """
-        # TODO: Implement patch branch API parsing
-        pass
+        try:
+            async with client.get(url) as response:
+                response.raise_for_status()
+                json_data = await response.json()
+        except Exception as e:
+            return SophonChunkManifestInfoPair(is_found=False, return_message=str(e))
+
+        manifests = []
+        if "data" in json_data and "manifests" in json_data["data"]:
+            manifests = json_data["data"]["manifests"]
+        elif "manifests" in json_data:
+            manifests = json_data["manifests"]
+        elif isinstance(json_data, list):
+            manifests = json_data
+
+        target_manifest = None
+        for m in manifests:
+            if matching_field and m.get("matching_field") != matching_field:
+                continue
+            patches = m.get("patches", [])
+            for p in patches:
+                if p.get("version_tag") == version_tag_update_from:
+                    target_manifest = p
+                    break
+            if target_manifest:
+                break
+
+        if not target_manifest:
+            return SophonChunkManifestInfoPair(is_found=False, return_message="Patch not found")
+
+        md = target_manifest.get("patch_download", target_manifest)
+        cd = target_manifest.get("chunk_download", target_manifest)
+
+        from .manifest import SophonManifest
+        manifest_info = SophonManifest.create_manifest_info(
+            manifest_base_url=md.get("url_prefix", ""),
+            manifest_checksum_md5=md.get("checksum", ""),
+            manifest_id=md.get("manifest_id", ""),
+            is_use_compression=md.get("is_compressed", False),
+            manifest_size=md.get("uncompressed_size", 0),
+            manifest_compressed_size=md.get("size", 0),
+            matching_field=matching_field,
+        )
+
+        chunks_info = SophonManifest.create_chunks_info(
+            chunks_base_url=cd.get("url_prefix", ""),
+            chunks_count=cd.get("chunk_count", 0),
+            files_count=cd.get("file_count", 0),
+            is_use_compression=cd.get("is_compressed", False),
+            total_size=cd.get("uncompressed_size", 0),
+            total_compressed_size=cd.get("size", 0),
+            matching_field=matching_field,
+        )
+
+        return SophonChunkManifestInfoPair(
+            chunks_info=chunks_info,
+            manifest_info=manifest_info,
+            is_found=True
+        )

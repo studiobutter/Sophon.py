@@ -1,7 +1,7 @@
 """Download speed limiter for Sophon."""
 
-from typing import Optional, Callable, Any
 import asyncio
+from typing import Any, Callable, Optional
 
 
 class SophonDownloadSpeedLimiter:

@@ -1,7 +1,9 @@
 """SophonUpdate for handling game updates."""
 
-from typing import AsyncIterator, Optional
 import asyncio
+from collections.abc import AsyncIterator
+from typing import Optional
+
 import aiohttp
 
 from .asset import SophonAsset
@@ -42,5 +44,45 @@ class SophonUpdate:
             ValueError: If manifest info is invalid.
             aiohttp.ClientError: If HTTP request fails.
         """
-        # TODO: Implement update enumeration logic
-        yield  # Placeholder to make this an async generator
+        from .manifest import SophonManifest
+
+        # Build map of old assets
+        old_assets = {}
+        async for old_asset in SophonManifest.enumerate_async(
+            http_client, info_pair_old, download_speed_limiter, token
+        ):
+            old_assets[old_asset.asset_name] = old_asset
+
+        # Enumerate new assets and find changes
+        async for new_asset in SophonManifest.enumerate_async(
+            http_client, info_pair_new, download_speed_limiter, token
+        ):
+            old_asset = old_assets.get(new_asset.asset_name)
+
+            if not old_asset:
+                # Completely new asset
+                new_asset.is_has_patch = False
+                yield new_asset
+                continue
+
+            if new_asset.asset_hash == old_asset.asset_hash:
+                # No changes
+                continue
+
+            # Asset has changed, link old chunks for diff update
+            new_asset.is_has_patch = True
+
+            # For a proper update, we want chunks to point to old chunk offsets where hash matches
+            # Wait, in the Sophon protocol, chunks that match decompressed hash can be copied
+            # from the old file directly. Let's map old chunk hashes to their offsets
+            old_chunks_by_hash = {
+                c.chunk_hash_decompressed: c
+                for c in old_asset.chunks
+            }
+
+            for chunk in new_asset.chunks:
+                if chunk.chunk_hash_decompressed in old_chunks_by_hash:
+                    old_chunk = old_chunks_by_hash[chunk.chunk_hash_decompressed]
+                    chunk.chunk_old_offset = old_chunk.chunk_offset
+
+            yield new_asset

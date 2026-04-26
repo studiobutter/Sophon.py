@@ -1,7 +1,7 @@
 """Logging utilities for Sophon library."""
 
 import logging
-from typing import Optional, Callable
+from typing import Callable, Optional
 
 # Create logger
 logger = logging.getLogger("sophon")

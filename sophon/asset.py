@@ -1,25 +1,60 @@
 """SophonAsset for downloading files using Sophon protocol."""
 
-from dataclasses import dataclass, field
-from typing import Optional, Callable, List, BinaryIO, Union
-from enum import Enum
 import asyncio
-import aiohttp
 import hashlib
-import io
 import logging
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import BinaryIO, Callable, Optional, Union
 
-from .chunk import SophonChunk, ParallelOptions
+import aiohttp
+import zstandard
+
+from .chunk import ParallelOptions, SophonChunk
+from .exceptions import DownloadError
 from .speed_limiter import SophonDownloadSpeedLimiter
 from .types import IdentifiableProperty
 from .types.chunks_info import SophonChunksInfo
-from .exceptions import DownloadError, ChunkVerificationError
 
 logger = logging.getLogger(__name__)
 
 # Default retry attempts and timeout
 DEFAULT_RETRY_ATTEMPTS = 3
 DEFAULT_TIMEOUT_SECONDS = 30
+
+
+class ZstdDecompressionStream:
+    """Async wrapper to decompress zstd streams from aiohttp."""
+
+    def __init__(self, reader: aiohttp.StreamReader):
+        self.reader = reader
+        self.decompressor = zstandard.ZstdDecompressor()
+        self.decompressobj = self.decompressor.decompressobj()
+        self.buffer = bytearray()
+
+    async def read(self, n: int = -1) -> bytes:
+        if n == -1:
+            n = float('inf')
+
+        while len(self.buffer) < n:
+            chunk = await self.reader.read(8192)
+            if not chunk:
+                break
+            try:
+                decompressed = self.decompressobj.decompress(chunk)
+                if decompressed:
+                    self.buffer.extend(decompressed)
+            except zstandard.ZstdError as e:
+                raise DownloadError(f"Decompression error: {e}") from e
+
+        if n == float('inf'):
+            res = bytes(self.buffer)
+            self.buffer.clear()
+            return res
+
+        res = bytes(self.buffer[:n])
+        self.buffer = self.buffer[n:]
+        return res
 
 
 class SourceStreamType(Enum):
@@ -39,7 +74,7 @@ class SophonAsset(IdentifiableProperty):
     asset_hash: Optional[str] = None
     is_directory: bool = False
     is_has_patch: bool = False
-    chunks: List[SophonChunk] = field(default_factory=list)
+    chunks: list[SophonChunk] = field(default_factory=list)
     download_speed_limiter: Optional[SophonDownloadSpeedLimiter] = None
     sophon_chunks_info: Optional[SophonChunksInfo] = None
     sophon_chunks_info_alt: Optional[SophonChunksInfo] = None
@@ -67,12 +102,12 @@ class SophonAsset(IdentifiableProperty):
         token: Optional[asyncio.CancelledError] = None,
     ) -> None:
         """
-        Download asset file by writing chunks to output path (sequential).
+        Download asset file by writing chunks to output path.
 
         Args:
             client: aiohttp ClientSession for downloads.
             output_path: Path where file will be written.
-            parallel_options: Parallel execution options (ignored for sequential).
+            parallel_options: Parallel execution options.
             write_info_delegate: Callback for write info updates (bytes written).
             download_info_delegate: Callback for download progress (total, network).
             download_complete_delegate: Callback when download completes.
@@ -84,7 +119,7 @@ class SophonAsset(IdentifiableProperty):
             DownloadError: If download fails.
         """
         self._validate_chunks_state()
-        
+
         if token is None:
             token = asyncio.CancelledError()
 
@@ -92,33 +127,52 @@ class SophonAsset(IdentifiableProperty):
         try:
             with open(output_path, "wb") as f:
                 if self.asset_size > 0:
-                    f.seek(self.asset_size - 1)
-                    f.write(b'\x00')
-        except IOError as e:
-            raise IOError(f"Failed to create output file at {output_path}: {e}")
+                    f.truncate(self.asset_size)
+        except OSError as e:
+            raise OSError(f"Failed to create output file at {output_path}: {e}")
 
-        # Download each chunk sequentially
+        # Download chunks
         try:
-            for chunk in self.chunks:
+            if parallel_options and parallel_options.max_degree_of_parallelism > 1:
+                semaphore = asyncio.Semaphore(parallel_options.max_degree_of_parallelism)
+
+                async def _download_chunk(chunk):
+                    async with semaphore:
+                        with open(output_path, "r+b") as stream:
+                            await self._perform_write_stream_thread_async(
+                                client,
+                                None,
+                                SourceStreamType.INTERNET,
+                                stream,
+                                chunk,
+                                write_info_delegate,
+                                download_info_delegate,
+                                token,
+                            )
+
+                tasks = [_download_chunk(chunk) for chunk in self.chunks]
+                await asyncio.gather(*tasks)
+            else:
                 with open(output_path, "r+b") as stream:
-                    await self._perform_write_stream_thread_async(
-                        client,
-                        None,
-                        SourceStreamType.INTERNET,
-                        stream,
-                        chunk,
-                        write_info_delegate,
-                        download_info_delegate,
-                        token,
-                    )
-            
+                    for chunk in self.chunks:
+                        await self._perform_write_stream_thread_async(
+                            client,
+                            None,
+                            SourceStreamType.INTERNET,
+                            stream,
+                            chunk,
+                            write_info_delegate,
+                            download_info_delegate,
+                            token,
+                        )
+
             logger.info(
                 f"Asset: {self.asset_name} ({self.asset_size} bytes) "
                 f"has been completely downloaded!"
             )
             if download_complete_delegate:
                 download_complete_delegate(self)
-            
+
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -155,8 +209,73 @@ class SophonAsset(IdentifiableProperty):
             ValueError: If chunks are not properly initialized.
             IOError: If directory operations fail.
         """
-        # TODO: Implement diff chunk download logic
-        pass
+        import os
+        self._validate_chunks_state()
+        if token := getattr(parallel_options, "cancellation_token", None):
+            # TODO: handle custom cancellation tokens properly if passed in parallel_options
+            pass
+        else:
+            token = asyncio.CancelledError()
+
+        os.makedirs(chunk_dir_output, exist_ok=True)
+
+        async def _download_diff_chunk(chunk: SophonChunk):
+            if chunk.chunk_old_offset != -1:
+                return  # It's an old chunk, no need to download
+
+            chunk_path = os.path.join(chunk_dir_output, chunk.chunk_name)
+
+            # Check if chunk exists and is valid
+            is_valid = False
+            if os.path.exists(chunk_path):
+                with open(chunk_path, "rb") as f:
+                    is_valid = await chunk.check_chunk_hash_async(f, False)
+
+            if is_valid and not force_verification:
+                logger.debug(f"Chunk {chunk.chunk_name} already downloaded and valid")
+                if write_info_delegate:
+                    write_info_delegate(chunk.chunk_size_decompressed)
+                if download_info_delegate:
+                    download_info_delegate(chunk.chunk_size_decompressed, 0)
+                return
+
+            with open(chunk_path, "wb") as f:
+                pass  # Create empty file
+
+            with open(chunk_path, "r+b") as stream:
+                await self._perform_write_stream_thread_async(
+                    client,
+                    None,
+                    SourceStreamType.INTERNET,
+                    stream,
+                    chunk,
+                    write_info_delegate,
+                    download_info_delegate,
+                    token,
+                )
+
+        try:
+            if parallel_options and parallel_options.max_degree_of_parallelism > 1:
+                semaphore = asyncio.Semaphore(parallel_options.max_degree_of_parallelism)
+
+                async def _bounded_download(chunk):
+                    async with semaphore:
+                        await _download_diff_chunk(chunk)
+
+                tasks = [_bounded_download(chunk) for chunk in self.chunks]
+                await asyncio.gather(*tasks)
+            else:
+                for chunk in self.chunks:
+                    await _download_diff_chunk(chunk)
+
+            if download_complete_delegate:
+                download_complete_delegate(self.asset_name)
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to download diff chunks for {self.asset_name}: {e}")
+            raise DownloadError(f"Failed to download diff chunks: {e}") from e
 
     async def write_update_async(
         self,
@@ -188,8 +307,85 @@ class SophonAsset(IdentifiableProperty):
             ValueError: If input directories don't exist.
             IOError: If file operations fail.
         """
-        # TODO: Implement update logic
-        pass
+        import os
+        self._validate_chunks_state()
+        if token is None:
+            token = asyncio.CancelledError()
+
+        old_path = os.path.join(old_input_dir, self.asset_name)
+        new_path = os.path.join(new_output_dir, self.asset_name)
+
+        if not os.path.exists(old_path) and any(c.chunk_old_offset != -1 for c in self.chunks):
+            raise ValueError(f"Old file not found: {old_path}")
+
+        os.makedirs(os.path.dirname(new_path) or ".", exist_ok=True)
+        try:
+            with open(new_path, "wb") as f:
+                if self.asset_size > 0:
+                    f.truncate(self.asset_size)
+        except OSError as e:
+            raise OSError(f"Failed to create new file at {new_path}: {e}")
+
+        old_stream = None
+        try:
+            old_stream = open(old_path, "rb") if os.path.exists(old_path) else None
+            with open(new_path, "r+b") as new_stream:
+                for chunk in self.chunks:
+                    if chunk.chunk_old_offset != -1:
+                        await self._perform_write_stream_thread_async(
+                            client,
+                            old_stream,
+                            SourceStreamType.OLD_REFERENCE,
+                            new_stream,
+                            chunk,
+                            write_info_delegate,
+                            download_info_delegate,
+                            token,
+                        )
+                    else:
+                        chunk_path = os.path.join(chunk_dir, chunk.chunk_name)
+                        if not os.path.exists(chunk_path):
+                            # Try to download it from internet directly if not staged
+                            await self._perform_write_stream_thread_async(
+                                client,
+                                None,
+                                SourceStreamType.INTERNET,
+                                new_stream,
+                                chunk,
+                                write_info_delegate,
+                                download_info_delegate,
+                                token,
+                            )
+                        else:
+                            with open(chunk_path, "rb") as cached_stream:
+                                await self._perform_write_stream_thread_async(
+                                    client,
+                                    cached_stream,
+                                    SourceStreamType.CACHED_LOCAL,
+                                    new_stream,
+                                    chunk,
+                                    write_info_delegate,
+                                    download_info_delegate,
+                                    token,
+                                    write_offset=-1,
+                                )
+                            if remove_chunk_after_apply:
+                                try:
+                                    os.remove(chunk_path)
+                                except OSError:
+                                    pass
+
+            if download_complete_delegate:
+                download_complete_delegate(self.asset_name)
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to apply update for {self.asset_name}: {e}")
+            raise DownloadError(f"Failed to apply update: {e}") from e
+        finally:
+            if old_stream:
+                old_stream.close()
 
     async def _perform_write_stream_thread_async(
         self,
@@ -201,6 +397,7 @@ class SophonAsset(IdentifiableProperty):
         write_info_delegate: Optional[Callable[[int], None]],
         download_info_delegate: Optional[Callable[[int, int], None]],
         token: asyncio.CancelledError,
+        write_offset: int = -1,
     ) -> None:
         """
         Perform a single chunk download/write operation.
@@ -215,12 +412,13 @@ class SophonAsset(IdentifiableProperty):
             download_info_delegate: Download progress callback.
             token: Cancellation token.
         """
-        total_size_from_offset = chunk.chunk_offset + chunk.chunk_size_decompressed
+        actual_offset = write_offset if write_offset != -1 else chunk.chunk_offset
+        total_size_from_offset = actual_offset + chunk.chunk_size_decompressed
         is_skip_chunk = False
 
         # Check if chunk already exists and is valid
         if out_stream.seek(0, 2) >= total_size_from_offset:
-            out_stream.seek(chunk.chunk_offset)
+            out_stream.seek(actual_offset)
             is_skip_chunk = await chunk.check_chunk_hash_async(out_stream, False)
 
         if is_skip_chunk:
@@ -230,7 +428,7 @@ class SophonAsset(IdentifiableProperty):
             )
             if write_info_delegate:
                 write_info_delegate(chunk.chunk_size_decompressed)
-            
+
             download_bytes = 0 if chunk.chunk_old_offset != -1 else chunk.chunk_size_decompressed
             if download_info_delegate:
                 download_info_delegate(download_bytes, 0)
@@ -258,6 +456,7 @@ class SophonAsset(IdentifiableProperty):
         write_info_delegate: Optional[Callable[[int], None]],
         download_info_delegate: Optional[Callable[[int, int], None]],
         token: asyncio.CancelledError,
+        write_offset: int = -1,
     ) -> None:
         """
         Core download logic with retries and error handling.
@@ -292,7 +491,6 @@ class SophonAsset(IdentifiableProperty):
         current_write_offset = 0
         current_source_stream_type = source_stream_type
         http_response: Optional[aiohttp.ClientResponse] = None
-        http_response_stream: Optional[Union[aiohttp.StreamReader, BinaryIO]] = None
 
         while True:
             allow_dispose = False
@@ -300,7 +498,7 @@ class SophonAsset(IdentifiableProperty):
             try:
                 # Create timeout
                 timeout = aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT_SECONDS)
-                
+
                 logger.debug(
                     f"Init. by offset: 0x{chunk.chunk_offset:08x} "
                     f"-> L: 0x{chunk.chunk_size_decompressed:08x} "
@@ -308,7 +506,7 @@ class SophonAsset(IdentifiableProperty):
                 )
 
                 out_stream.seek(chunk.chunk_offset)
-                
+
                 md5_hash = hashlib.md5()
                 buffer = bytearray(self.BUFFER_SIZE)
                 current_source_stream: Optional[Union[aiohttp.StreamReader, BinaryIO]] = None
@@ -319,7 +517,7 @@ class SophonAsset(IdentifiableProperty):
                         # Download from internet
                         if self.sophon_chunks_info is None:
                             raise ValueError("sophon_chunks_info is not set")
-                        
+
                         http_response = await client.get(
                             f"{self.sophon_chunks_info.chunks_base_url}/{chunk.chunk_name}",
                             timeout=timeout,
@@ -327,9 +525,8 @@ class SophonAsset(IdentifiableProperty):
                         )
                         current_source_stream = http_response.content
 
-                        # TODO: Handle decompression if needed
-                        # if self.sophon_chunks_info.is_use_compression:
-                        #     current_source_stream = ZstdDecompressionStream(http_response.content)
+                        if self.sophon_chunks_info.is_use_compression:
+                            current_source_stream = ZstdDecompressionStream(http_response.content)
 
                     except aiohttp.ClientError as e:
                         if current_retry < DEFAULT_RETRY_ATTEMPTS:
@@ -365,9 +562,9 @@ class SophonAsset(IdentifiableProperty):
                 remain = chunk.chunk_size_decompressed
                 while remain > 0:
                     to_read = min(len(buffer), remain)
-                    
+
                     # Read data based on stream type
-                    if isinstance(current_source_stream, aiohttp.StreamReader):
+                    if isinstance(current_source_stream, (aiohttp.StreamReader, ZstdDecompressionStream)):
                         data = await current_source_stream.read(to_read)
                     elif current_source_stream is not None:
                         # File stream or other stream type
@@ -482,4 +679,3 @@ class SophonAsset(IdentifiableProperty):
     def __hash__(self) -> int:
         """Return hash based on asset properties."""
         return hash((self.is_has_patch, self.asset_name, self.asset_hash))
-

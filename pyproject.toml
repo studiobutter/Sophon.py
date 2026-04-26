@@ -22,6 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
     "Topic :: Internet :: WWW/HTTP",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -71,8 +72,11 @@ target-version = ["py39"]
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+exclude = ["sophon/proto/*"]
+
+[tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP"]
-ignore = ["E501"]
+ignore = ["E501", "N818", "E402"]
 
 [tool.isort]
 profile = "black"

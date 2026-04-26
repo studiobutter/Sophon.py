@@ -15,3 +15,16 @@ class IdentifiableProperty:
     def __hash__(self) -> int:
         """Make the object hashable."""
         return hash((self.matching_field, self.category_id, self.category_name))
+
+from .chunks_info import SophonChunksInfo
+from .info_pair import SophonChunkManifestInfoPair, SophonManifestBuildData, SophonManifestPatchData
+from .manifest_info import SophonManifestInfo
+
+__all__ = [
+    "IdentifiableProperty",
+    "SophonManifestInfo",
+    "SophonChunksInfo",
+    "SophonChunkManifestInfoPair",
+    "SophonManifestBuildData",
+    "SophonManifestPatchData"
+]

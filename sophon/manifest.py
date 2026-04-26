@@ -1,15 +1,20 @@
 """SophonManifest for managing and downloading manifests."""
 
-from typing import AsyncIterator, Optional
 import asyncio
+from collections.abc import AsyncIterator
+from typing import Optional
+
 import aiohttp
+import zstandard
 
 from .asset import SophonAsset
+from .chunk import SophonChunk
+from .proto.SophonManifestProto_pb2 import SophonManifestProto
 from .speed_limiter import SophonDownloadSpeedLimiter
 from .types import (
     SophonChunkManifestInfoPair,
-    SophonManifestInfo,
     SophonChunksInfo,
+    SophonManifestInfo,
 )
 
 
@@ -39,8 +44,42 @@ class SophonManifest:
             ValueError: If manifest info is invalid.
             aiohttp.ClientError: If HTTP request fails.
         """
-        # TODO: Implement manifest enumeration
-        yield  # Placeholder to make this an async generator
+        if not info_pair.manifest_info or not info_pair.chunks_info:
+            raise ValueError("Invalid manifest info pair")
+
+        manifest_url = info_pair.manifest_info.manifest_file_url
+        async with http_client.get(manifest_url) as response:
+            response.raise_for_status()
+            data = await response.read()
+
+        if info_pair.manifest_info.is_use_compression:
+            dctx = zstandard.ZstdDecompressor()
+            data = dctx.decompress(data)
+
+        manifest_proto = SophonManifestProto()
+        manifest_proto.ParseFromString(data)
+
+        for asset_prop in manifest_proto.Assets:
+            asset = SophonAsset(
+                asset_name=asset_prop.AssetName,
+                asset_size=asset_prop.AssetSize,
+                asset_hash=asset_prop.AssetHashMd5,
+                is_directory=(asset_prop.AssetSize == 0 and not asset_prop.AssetChunks),
+                sophon_chunks_info=info_pair.chunks_info,
+                download_speed_limiter=download_speed_limiter
+            )
+
+            for chunk_prop in asset_prop.AssetChunks:
+                chunk = SophonChunk(
+                    chunk_name=chunk_prop.ChunkName,
+                    chunk_hash_decompressed=bytes.fromhex(chunk_prop.ChunkDecompressedHashMd5),
+                    chunk_offset=chunk_prop.ChunkOnFileOffset,
+                    chunk_size=chunk_prop.ChunkSize,
+                    chunk_size_decompressed=chunk_prop.ChunkSizeDecompressed
+                )
+                asset.chunks.append(chunk)
+
+            yield asset
 
     @staticmethod
     async def create_chunk_manifest_info_pair(
@@ -67,8 +106,63 @@ class SophonManifest:
             ValueError: If URL is invalid or manifest not found.
             aiohttp.ClientError: If HTTP request fails.
         """
-        # TODO: Implement branch API parsing
-        pass
+        try:
+            async with client.get(url) as response:
+                response.raise_for_status()
+                json_data = await response.json()
+        except Exception as e:
+            if is_throw_if_not_found:
+                raise ValueError(f"Failed to fetch manifest pair: {e}") from e
+            return SophonChunkManifestInfoPair(is_found=False, return_message=str(e))
+
+        manifests = []
+        if "data" in json_data and "manifests" in json_data["data"]:
+            manifests = json_data["data"]["manifests"]
+        elif "manifests" in json_data:
+            manifests = json_data["manifests"]
+        elif isinstance(json_data, list):
+            manifests = json_data
+
+        target_manifest = None
+        for m in manifests:
+            if m.get("matching_field") == matching_field:
+                target_manifest = m
+                break
+
+        if not target_manifest:
+            if is_throw_if_not_found:
+                raise ValueError(f"Manifest with matching_field '{matching_field}' not found")
+            return SophonChunkManifestInfoPair(is_found=False, return_message="Not found")
+
+        manifest_data = target_manifest.get("manifest", target_manifest)
+        md = manifest_data.get("manifest_download", {})
+        cd = manifest_data.get("chunk_download", {})
+
+        manifest_info = SophonManifest.create_manifest_info(
+            manifest_base_url=md.get("url_prefix", ""),
+            manifest_checksum_md5=md.get("checksum", ""),
+            manifest_id=md.get("manifest_id", ""),
+            is_use_compression=md.get("is_compressed", False),
+            manifest_size=md.get("uncompressed_size", 0),
+            manifest_compressed_size=md.get("size", 0),
+            matching_field=matching_field,
+        )
+
+        chunks_info = SophonManifest.create_chunks_info(
+            chunks_base_url=cd.get("url_prefix", ""),
+            chunks_count=cd.get("chunk_count", 0),
+            files_count=cd.get("file_count", 0),
+            is_use_compression=cd.get("is_compressed", False),
+            total_size=cd.get("uncompressed_size", 0),
+            total_compressed_size=cd.get("size", 0),
+            matching_field=matching_field,
+        )
+
+        return SophonChunkManifestInfoPair(
+            chunks_info=chunks_info,
+            manifest_info=manifest_info,
+            is_found=True
+        )
 
     @staticmethod
     def create_manifest_info(
