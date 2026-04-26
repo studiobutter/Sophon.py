@@ -138,3 +138,5 @@ downloads/
 # Others
 IMPLEMENTATION_STATUS.md
 PROJECT_STATUS.md
+*.proto
+sample_api/
