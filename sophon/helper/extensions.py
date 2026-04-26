@@ -68,10 +68,11 @@ def format_bytes(num_bytes: int) -> str:
         Human-readable size string.
     """
     size_suffixes = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"]
+    size = float(num_bytes)
 
     for suffix in size_suffixes:
-        if num_bytes < 1024.0:
-            return f"{num_bytes:.2f} {suffix}"
-        num_bytes /= 1024.0
+        if size < 1024.0:
+            return f"{size:.2f} {suffix}"
+        size /= 1024.0
 
-    return f"{num_bytes:.2f} YB"
+    return f"{size:.2f} YB"

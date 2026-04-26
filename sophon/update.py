@@ -57,15 +57,15 @@ class SophonUpdate:
         async for new_asset in SophonManifest.enumerate_async(
             http_client, info_pair_new, download_speed_limiter, token
         ):
-            old_asset = old_assets.get(new_asset.asset_name)
+            existing_asset = old_assets.get(new_asset.asset_name)
 
-            if not old_asset:
+            if not existing_asset:
                 # Completely new asset
                 new_asset.is_has_patch = False
                 yield new_asset
                 continue
 
-            if new_asset.asset_hash == old_asset.asset_hash:
+            if new_asset.asset_hash == existing_asset.asset_hash:
                 # No changes
                 continue
 

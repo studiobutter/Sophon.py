@@ -33,10 +33,9 @@ class ZstdDecompressionStream:
         self.buffer = bytearray()
 
     async def read(self, n: int = -1) -> bytes:
-        if n == -1:
-            n = float('inf')
+        read_all = n == -1
 
-        while len(self.buffer) < n:
+        while read_all or len(self.buffer) < n:
             chunk = await self.reader.read(8192)
             if not chunk:
                 break
@@ -47,7 +46,7 @@ class ZstdDecompressionStream:
             except zstandard.ZstdError as e:
                 raise DownloadError(f"Decompression error: {e}") from e
 
-        if n == float('inf'):
+        if read_all:
             res = bytes(self.buffer)
             self.buffer.clear()
             return res
@@ -154,7 +153,7 @@ class SophonAsset(IdentifiableProperty):
                 with open(output_path, "r+b") as stream:
                     tasks = [_download_chunk(chunk) for chunk in self.chunks]
                     results = await asyncio.gather(*tasks, return_exceptions=True)
-                    
+
                     exceptions = [r for r in results if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError)]
                     if exceptions:
                         raise DownloadError(f"Multiple errors during parallel downloads: {exceptions}") from exceptions[0]
@@ -271,7 +270,7 @@ class SophonAsset(IdentifiableProperty):
 
                 tasks = [_bounded_download(chunk) for chunk in self.chunks]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
-                
+
                 exceptions = [r for r in results if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError)]
                 if exceptions:
                     raise DownloadError(f"Multiple errors during diff chunks downloads: {exceptions}") from exceptions[0]
@@ -521,7 +520,7 @@ class SophonAsset(IdentifiableProperty):
 
                 md5_hash = hashlib.md5()
                 buffer = bytearray(self.BUFFER_SIZE)
-                current_source_stream: Optional[Union[aiohttp.StreamReader, BinaryIO]] = None
+                current_source_stream: Optional[Union[aiohttp.StreamReader, BinaryIO, ZstdDecompressionStream]] = None
 
                 # Setup source stream based on type
                 if current_source_stream_type == SourceStreamType.INTERNET:

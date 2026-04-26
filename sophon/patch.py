@@ -76,8 +76,82 @@ class SophonPatchAsset(IdentifiableProperty):
             aiohttp.ClientError: If download fails.
             IOError: If file operations fail.
         """
-        # TODO: Implement patch download logic
-        return True
+        import logging
+        import os
+
+        from .asset import SophonAsset, SourceStreamType
+        from .chunk import SophonChunk
+
+        logger = logging.getLogger(__name__)
+
+        if self.patch_method in (SophonPatchMethod.REMOVE, SophonPatchMethod.DOWNLOAD_OVER):
+            return True
+
+        if token is None:
+            token = asyncio.CancelledError()
+
+        patch_hash_bytes = bytes.fromhex(self.patch_hash) if len(self.patch_hash) == 32 else self.patch_hash.encode()
+
+        patch_chunk = SophonChunk(
+            chunk_name=self.patch_name_source,
+            chunk_hash_decompressed=patch_hash_bytes,
+            chunk_offset=0,
+            chunk_old_offset=0,
+            chunk_size=self.patch_size,
+            chunk_size_decompressed=self.patch_size,
+            is_skip_hash_check_on_write=True
+        )
+
+        os.makedirs(patch_output_dir, exist_ok=True)
+        patch_file_path = os.path.join(patch_output_dir, self.patch_name_source)
+
+        is_patch_matched = False
+        if os.path.exists(patch_file_path):
+            file_size = os.path.getsize(patch_file_path)
+            is_patch_matched = file_size == self.patch_size
+
+            if is_patch_matched and force_verification:
+                with open(patch_file_path, "rb") as f:
+                    is_patch_matched = await patch_chunk.check_chunk_hash_async(f, True)
+
+        if is_patch_matched:
+            if download_read_delegate:
+                download_read_delegate(self.patch_size)
+            return True
+
+        logger.debug(f"Downloading patch {self.patch_name_source} to {patch_file_path}")
+
+        temp_asset = SophonAsset(
+            asset_name=self.patch_name_source,
+            asset_size=self.patch_size,
+            chunks=[patch_chunk],
+            sophon_chunks_info=self.patch_info,
+            download_speed_limiter=download_speed_limiter
+        )
+
+        try:
+            with open(patch_file_path, "wb") as f_out:
+                pass
+
+            def download_info_wrapper(read_bytes: int, net_bytes: int):
+                if download_read_delegate:
+                    download_read_delegate(net_bytes)
+
+            with open(patch_file_path, "r+b") as stream:
+                await temp_asset._inner_write_stream_to_async(
+                    client=client,
+                    source_stream=None,
+                    source_stream_type=SourceStreamType.INTERNET,
+                    out_stream=stream,
+                    chunk=patch_chunk,
+                    write_info_delegate=None,
+                    download_info_delegate=download_info_wrapper,
+                    token=token
+                )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to download patch chunk {self.patch_name_source}: {e}")
+            raise
 
     async def apply_patch_update_async(
         self,
@@ -107,8 +181,143 @@ class SophonPatchAsset(IdentifiableProperty):
             aiohttp.ClientError: If download fails.
             IOError: If file operations fail.
         """
-        # TODO: Implement patch application logic
-        pass
+        import logging
+        import os
+        import shutil
+
+        logger = logging.getLogger(__name__)
+
+        if token is None:
+            token = asyncio.CancelledError()
+
+        if self.patch_method == SophonPatchMethod.REMOVE:
+            if not remove_old_assets:
+                return
+            original_path = os.path.join(input_dir, self.original_file_path)
+            if os.path.exists(original_path):
+                try:
+                    os.remove(original_path)
+                    logger.debug(f"Removed old asset: {original_path}")
+                except Exception as e:
+                    logger.error(f"Failed to delete old asset {original_path}: {e}")
+            return
+
+        elif self.patch_method == SophonPatchMethod.DOWNLOAD_OVER:
+            target_path = os.path.join(input_dir, self.target_file_path)
+            temp_target_path = f"{target_path}.temp"
+            os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
+
+            try:
+                if self.main_asset_info:
+                    self.main_asset_info.download_speed_limiter = download_speed_limiter
+                    await self.main_asset_info.write_to_stream_async(
+                        client=client,
+                        output_path=temp_target_path,
+                        write_info_delegate=disk_write_delegate,
+                        download_info_delegate=lambda x, y: download_read_delegate(x) if download_read_delegate else None,
+                        token=token
+                    )
+
+                if os.path.exists(target_path):
+                    os.remove(target_path)
+                shutil.move(temp_target_path, target_path)
+            except Exception as e:
+                logger.error(f"Failed DownloadOver for {self.target_file_path}: {e}")
+                if os.path.exists(temp_target_path):
+                    os.remove(temp_target_path)
+                raise
+            return
+
+        elif self.patch_method == SophonPatchMethod.COPY_OVER:
+            target_path = os.path.join(input_dir, self.target_file_path)
+            temp_target_path = f"{target_path}.temp"
+            patch_file = os.path.join(patch_output_dir, self.patch_name_source)
+            os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
+
+            try:
+                with open(patch_file, "rb") as src, open(temp_target_path, "wb") as dst:
+                    src.seek(self.patch_offset)
+                    remaining = self.patch_chunk_length
+                    buffer_size = 64 * 1024
+
+                    while remaining > 0:
+                        to_read = min(buffer_size, remaining)
+                        data = src.read(to_read)
+                        if not data:
+                            break
+                        dst.write(data)
+                        remaining -= len(data)
+                        if disk_write_delegate:
+                            disk_write_delegate(len(data))
+
+                if os.path.exists(target_path):
+                    os.remove(target_path)
+                shutil.move(temp_target_path, target_path)
+            except Exception as e:
+                logger.error(f"Failed CopyOver for {self.target_file_path}: {e}")
+                if os.path.exists(temp_target_path):
+                    os.remove(temp_target_path)
+                raise
+            return
+
+        elif self.patch_method == SophonPatchMethod.PATCH:
+            target_path = os.path.join(input_dir, self.target_file_path)
+            temp_target_path = f"{target_path}.temp"
+            original_path = os.path.join(input_dir, self.original_file_path)
+            patch_file = os.path.join(patch_output_dir, self.patch_name_source)
+            os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
+
+            hpatchz_path = os.environ.get("HPATCHZ_PATH", "hpatchz")
+
+            try:
+                cmd = [
+                    hpatchz_path,
+                    "-f",
+                    original_path,
+                    patch_file,
+                    temp_target_path
+                ]
+
+                logger.debug(f"Running hpatchz: {' '.join(cmd)}")
+
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+
+                stdout, stderr = await process.communicate()
+
+                if process.returncode != 0:
+                    error_msg = stderr.decode() or stdout.decode()
+                    raise RuntimeError(f"hpatchz failed with exit code {process.returncode}: {error_msg}")
+
+                if disk_write_delegate:
+                    disk_write_delegate(self.target_file_size)
+
+                if os.path.exists(target_path):
+                    os.remove(target_path)
+                shutil.move(temp_target_path, target_path)
+
+                if original_path.endswith(".diff_ref") or remove_old_assets:
+                    if os.path.exists(original_path) and original_path != target_path:
+                        try:
+                            os.remove(original_path)
+                        except OSError:
+                            pass
+
+            except Exception as e:
+                logger.error(f"Failed HDiffPatch for {self.target_file_path}: {e}")
+                if os.path.exists(temp_target_path):
+                    try:
+                        os.remove(temp_target_path)
+                    except OSError:
+                        pass
+                raise
+            return
+
+        else:
+            raise ValueError(f"Unknown patch method: {self.patch_method}")
 
     def __str__(self) -> str:
         """Return target file path as string representation."""

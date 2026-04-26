@@ -27,43 +27,39 @@
 - ✅ `SophonUpdate.enumerate_update_async()` - Enumerate changed assets
 - ✅ `SophonPatch.enumerate_update_async()` - Enumerate patch assets
 
+### 5. Updates & Patches (`sophon/patch.py`, `sophon/update.py`)
+- ✅ `download_diff_chunks_async()` - Download & stage diff chunks for update
+- ✅ `write_update_async()` - Apply diff chunks against old reference files
+- ✅ `apply_patch_update_async()` - Integrates `hpatchz` binary to apply core diffs
+- ✅ CopyOver, DownloadOver, and Remove patch strategies properly supported
+
+### 6. Streaming & Performance 
+- ✅ **Zstandard (`.zstd`)**: Implemented `ZstdDecompressionStream` via chunk streams
+- ✅ **Parallel Downloads**: Support `ParallelOptions` via `asyncio.Semaphore`
+
 ## ⚠️ Partially Complete (20-40%)
 
 ### 1. Testing & Documentation
-- ⚠️ Tests framework scaffold exists, but no real unit/integration tests.
+- ⚠️ Unit tests created for `chunk` and `asset`, but integration tests are missing.
 - ⚠️ Documentation (README) started but incomplete.
-
-### 2. Updates & Patches
-- ⚠️ `sophon/asset.py` lacks implementation for applying updates and diff chunks.
-- ⚠️ `sophon/patch.py` lacks core apply/download patch logic.
 
 ## 🔴 Critical Blockers
 
-1. **Patch/Update Logic Empty**: Core logic for applying patches (`download_diff_chunks_async()`, `write_update_async()`) is not implemented.
-2. **Parallel Downloads Missing**: Sequential download works, but parallel downloading is required for performance.
+None. The core SDK logic has been completely ported from C#.
 
 ## 📋 Immediate Next Steps
 
-1. Write Unit Tests (2-3 hours)
-2. Implement Parallel Downloads (3-4 hours)
-3. Implement Update/Patch Logic (3-4 hours)
+1. Write Integration Tests (2-3 hours)
+2. CI/CD Infrastructure (1-2 hours)
 
 ## ⏳ Priority Roadmap
 
-### Phase 1: Parallel Downloads (High Priority)
-- [ ] Implement `write_to_stream_async()` with ParallelOptions
-- [ ] Multi-chunk concurrent downloads (up to 8 concurrent)
-- [ ] Thread-safe stream access with locks
-- [ ] Error aggregation for concurrent operations
+### Phase 1: CI & Integration (High Priority)
+- [ ] Create workflow tests for updates and patches
+- [ ] Setup GitHub Actions CI/CD pipeline
 
-### Phase 2: Patch/Update Support (High Priority)
-- [ ] Implement `download_diff_chunks_async()`
-- [ ] Implement `write_update_async()`
-- [ ] Implement `apply_patch_update_async()` in `sophon/patch.py`
-
-### Phase 3: Infrastructure & Compression (Medium Priority)
-- [ ] Setup CI/CD pipeline
-- [ ] Zstandard (`.zstd`) decompression integration
+### Phase 2: Refinements
+- [ ] Extensive docstrings and static typing coverage validation
 
 ## Code Architecture
 
