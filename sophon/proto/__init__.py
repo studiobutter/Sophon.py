@@ -1,10 +1,6 @@
-"""Protobuf stub files for Sophon protocol.
+"""Protobuf stub files for Sophon protocol."""
 
-Note: These are placeholder files. In a real project, you would generate these
-using protoc from the .proto files:
+from .SophonManifestProto_pb2 import SophonManifestProto
+from .SophonPatchProto_pb2 import SophonPatchProto
 
-    protoc --python_out=. --pyi_out=. sophon_manifest.proto
-    protoc --python_out=. --pyi_out=. sophon_patch.proto
-"""
-
-# TODO: Add generated protobuf files
+__all__ = ["SophonManifestProto", "SophonPatchProto"]

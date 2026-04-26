@@ -21,27 +21,32 @@
 - ✅ Data structures and type definitions (`sophon/types/`)
 - ✅ Exception handling framework (`sophon/exceptions.py`)
 
+### 4. Manifest Handling & Protocol Buffers
+- ✅ Protocol Buffers compiled and integrated (`sophon/proto/`)
+- ✅ `SophonManifest.enumerate_async()` - Parses manifest and yields assets
+- ✅ `SophonUpdate.enumerate_update_async()` - Enumerate changed assets
+- ✅ `SophonPatch.enumerate_update_async()` - Enumerate patch assets
+
 ## ⚠️ Partially Complete (20-40%)
 
-### 1. Manifest Handling
-- ⚠️ Parsing works conceptually but enumeration (`SophonManifest.enumerate_async()`) is incomplete.
-
-### 2. Testing & Documentation
+### 1. Testing & Documentation
 - ⚠️ Tests framework scaffold exists, but no real unit/integration tests.
 - ⚠️ Documentation (README) started but incomplete.
 
+### 2. Updates & Patches
+- ⚠️ `sophon/asset.py` lacks implementation for applying updates and diff chunks.
+- ⚠️ `sophon/patch.py` lacks core apply/download patch logic.
+
 ## 🔴 Critical Blockers
 
-1. **Proto Files Not Compiled**: Your `.proto` files exist but haven't been compiled to Python.
-2. **Manifest Enumeration Missing**: `SophonManifest.enumerate_async()` is incomplete.
-3. **Patch/Update Logic Empty**: Only skeletons exist, core logic not implemented.
+1. **Patch/Update Logic Empty**: Core logic for applying patches (`download_diff_chunks_async()`, `write_update_async()`) is not implemented.
+2. **Parallel Downloads Missing**: Sequential download works, but parallel downloading is required for performance.
 
 ## 📋 Immediate Next Steps
 
-1. Install Extensions & Compile Protos (1-2 hours)
-2. Complete Manifest Implementation (2-3 hours)
-3. Write Unit Tests (2-3 hours)
-4. Implement Parallel Downloads (3-4 hours)
+1. Write Unit Tests (2-3 hours)
+2. Implement Parallel Downloads (3-4 hours)
+3. Implement Update/Patch Logic (3-4 hours)
 
 ## ⏳ Priority Roadmap
 
@@ -54,6 +59,7 @@
 ### Phase 2: Patch/Update Support (High Priority)
 - [ ] Implement `download_diff_chunks_async()`
 - [ ] Implement `write_update_async()`
+- [ ] Implement `apply_patch_update_async()` in `sophon/patch.py`
 
 ### Phase 3: Infrastructure & Compression (Medium Priority)
 - [ ] Setup CI/CD pipeline

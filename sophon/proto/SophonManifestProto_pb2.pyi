@@ -1,10 +1,8 @@
-from collections.abc import Iterable as _Iterable
-from collections.abc import Mapping as _Mapping
-from typing import ClassVar as _ClassVar
-
+from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
-from google.protobuf.internal import containers as _containers
+from collections.abc import Iterable as _Iterable, Mapping as _Mapping
+from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
@@ -12,7 +10,7 @@ class SophonManifestProto(_message.Message):
     __slots__ = ("Assets",)
     ASSETS_FIELD_NUMBER: _ClassVar[int]
     Assets: _containers.RepeatedCompositeFieldContainer[SophonManifestAssetProperty]
-    def __init__(self, Assets: _Iterable[SophonManifestAssetProperty | _Mapping] | None = ...) -> None: ...
+    def __init__(self, Assets: _Optional[_Iterable[_Union[SophonManifestAssetProperty, _Mapping]]] = ...) -> None: ...
 
 class SophonManifestAssetProperty(_message.Message):
     __slots__ = ("AssetName", "AssetChunks", "AssetType", "AssetSize", "AssetHashMd5")
@@ -26,7 +24,7 @@ class SophonManifestAssetProperty(_message.Message):
     AssetType: int
     AssetSize: int
     AssetHashMd5: str
-    def __init__(self, AssetName: str | None = ..., AssetChunks: _Iterable[SophonManifestAssetChunk | _Mapping] | None = ..., AssetType: int | None = ..., AssetSize: int | None = ..., AssetHashMd5: str | None = ...) -> None: ...
+    def __init__(self, AssetName: _Optional[str] = ..., AssetChunks: _Optional[_Iterable[_Union[SophonManifestAssetChunk, _Mapping]]] = ..., AssetType: _Optional[int] = ..., AssetSize: _Optional[int] = ..., AssetHashMd5: _Optional[str] = ...) -> None: ...
 
 class SophonManifestAssetChunk(_message.Message):
     __slots__ = ("ChunkName", "ChunkDecompressedHashMd5", "ChunkOnFileOffset", "ChunkSize", "ChunkSizeDecompressed")
@@ -40,4 +38,4 @@ class SophonManifestAssetChunk(_message.Message):
     ChunkOnFileOffset: int
     ChunkSize: int
     ChunkSizeDecompressed: int
-    def __init__(self, ChunkName: str | None = ..., ChunkDecompressedHashMd5: str | None = ..., ChunkOnFileOffset: int | None = ..., ChunkSize: int | None = ..., ChunkSizeDecompressed: int | None = ...) -> None: ...
+    def __init__(self, ChunkName: _Optional[str] = ..., ChunkDecompressedHashMd5: _Optional[str] = ..., ChunkOnFileOffset: _Optional[int] = ..., ChunkSize: _Optional[int] = ..., ChunkSizeDecompressed: _Optional[int] = ...) -> None: ...
