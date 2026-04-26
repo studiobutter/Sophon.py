@@ -138,4 +138,4 @@ downloads/
 # Others
 *.proto
 sample_api/
-Sample_C_Sharp/
+# Sample_C_Sharp/ (Temp inclusion)
