@@ -135,23 +135,30 @@ class SophonAsset(IdentifiableProperty):
         try:
             if parallel_options and parallel_options.max_degree_of_parallelism > 1:
                 semaphore = asyncio.Semaphore(parallel_options.max_degree_of_parallelism)
+                stream_lock = asyncio.Lock()
 
                 async def _download_chunk(chunk):
                     async with semaphore:
-                        with open(output_path, "r+b") as stream:
-                            await self._perform_write_stream_thread_async(
-                                client,
-                                None,
-                                SourceStreamType.INTERNET,
-                                stream,
-                                chunk,
-                                write_info_delegate,
-                                download_info_delegate,
-                                token,
-                            )
+                        await self._perform_write_stream_thread_async(
+                            client,
+                            None,
+                            SourceStreamType.INTERNET,
+                            stream,
+                            chunk,
+                            write_info_delegate,
+                            download_info_delegate,
+                            token,
+                            stream_lock=stream_lock
+                        )
 
-                tasks = [_download_chunk(chunk) for chunk in self.chunks]
-                await asyncio.gather(*tasks)
+                with open(output_path, "r+b") as stream:
+                    tasks = [_download_chunk(chunk) for chunk in self.chunks]
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    
+                    exceptions = [r for r in results if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError)]
+                    if exceptions:
+                        raise DownloadError(f"Multiple errors during parallel downloads: {exceptions}") from exceptions[0]
+
             else:
                 with open(output_path, "r+b") as stream:
                     for chunk in self.chunks:
@@ -263,7 +270,12 @@ class SophonAsset(IdentifiableProperty):
                         await _download_diff_chunk(chunk)
 
                 tasks = [_bounded_download(chunk) for chunk in self.chunks]
-                await asyncio.gather(*tasks)
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                exceptions = [r for r in results if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError)]
+                if exceptions:
+                    raise DownloadError(f"Multiple errors during diff chunks downloads: {exceptions}") from exceptions[0]
+
             else:
                 for chunk in self.chunks:
                     await _download_diff_chunk(chunk)
