@@ -138,4 +138,5 @@ downloads/
 # Others
 *.proto
 sample_api/
-# Sample_C_Sharp/ (Temp inclusion)
+Sample_C_Sharp/
+.exclude/

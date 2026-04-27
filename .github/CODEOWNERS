@@ -1,0 +1,20 @@
+# CODEOWNERS file for Sophon.py
+# These owners will automatically be requested as reviewers for PRs
+
+*                    @studiobutter
+
+# Core modules
+/sophon/*.py         @studiobutter
+/sophon/proto/       @studiobutter
+
+# Tests
+/tests/              @studiobutter
+
+# CI/CD
+/.github/            @studiobutter
+/pyproject.toml      @studiobutter
+/setup.py            @studiobutter
+
+# Documentation
+*.md                 @studiobutter
+/docs/               @studiobutter
