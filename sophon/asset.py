@@ -13,7 +13,7 @@ import zstandard
 from .chunk import ParallelOptions, SophonChunk
 from .exceptions import DownloadError
 from .speed_limiter import SophonDownloadSpeedLimiter
-from .types import IdentifiableProperty
+from .types import IdentifiableProperty, DownloadProgress
 from .types.chunks_info import SophonChunksInfo
 
 logger = logging.getLogger(__name__)

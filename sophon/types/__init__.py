@@ -19,6 +19,7 @@ class IdentifiableProperty:
 from .chunks_info import SophonChunksInfo
 from .info_pair import SophonChunkManifestInfoPair, SophonManifestBuildData, SophonManifestPatchData
 from .manifest_info import SophonManifestInfo
+from .progress_info import DownloadProgress
 
 __all__ = [
     "IdentifiableProperty",
@@ -26,5 +27,6 @@ __all__ = [
     "SophonChunksInfo",
     "SophonChunkManifestInfoPair",
     "SophonManifestBuildData",
-    "SophonManifestPatchData"
+    "SophonManifestPatchData",
+    "DownloadProgress"
 ]
