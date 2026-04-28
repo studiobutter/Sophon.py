@@ -132,7 +132,7 @@ class SophonPatchAsset(IdentifiableProperty):
         temp_patch_file_path = f"{patch_file_path}.tmp"
 
         try:
-            with open(temp_patch_file_path, "wb") as f_out:
+            with open(temp_patch_file_path, "wb"):
                 pass
 
             def download_info_wrapper(read_bytes: int, net_bytes: int):
@@ -150,7 +150,7 @@ class SophonPatchAsset(IdentifiableProperty):
                     download_info_delegate=download_info_wrapper,
                     token=token
                 )
-            
+
             os.replace(temp_patch_file_path, patch_file_path)
             return True
         except asyncio.CancelledError:

@@ -13,7 +13,7 @@ import zstandard
 from .chunk import ParallelOptions, SophonChunk
 from .exceptions import DownloadError
 from .speed_limiter import SophonDownloadSpeedLimiter
-from .types import IdentifiableProperty, DownloadProgress
+from .types import IdentifiableProperty
 from .types.chunks_info import SophonChunksInfo
 
 logger = logging.getLogger(__name__)
@@ -641,7 +641,7 @@ class SophonAsset(IdentifiableProperty):
                             out_stream.write(data)
                     else:
                         out_stream.write(data)
-                        
+
                     current_write_offset += len(data)
                     remain -= len(data)
                     md5_hash.update(data)

@@ -1,13 +1,11 @@
 import asyncio
-import os
-import pytest
 from unittest.mock import MagicMock, patch
 
 import aiohttp
-from sophon.asset import SophonAsset, SourceStreamType
-from sophon.chunk import SophonChunk, ParallelOptions
-from sophon.exceptions import DownloadError
-from sophon.types.chunks_info import SophonChunksInfo
+import pytest
+
+from sophon.asset import SophonAsset
+from sophon.chunk import ParallelOptions, SophonChunk
 
 
 class TestSophonAssetCore:
@@ -56,7 +54,7 @@ class TestSophonAssetCore:
         )
 
         mock_session = MagicMock(spec=aiohttp.ClientSession)
-        
+
         # Patch the inner download method to do nothing so we only test file creation
         with patch.object(asset, "_perform_write_stream_thread_async", new_callable=MagicMock) as mock_perform:
             # We need an async mock
@@ -99,7 +97,7 @@ class TestSophonAssetCore:
 
         mock_session = MagicMock(spec=aiohttp.ClientSession)
         call_count = 0
-        
+
         async def mock_perform(*args, **kwargs):
             nonlocal call_count
             call_count += 1

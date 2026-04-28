@@ -1,11 +1,11 @@
-import asyncio
-import io
-import zstandard
-import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import aiohttp
+import pytest
+import zstandard
+
 from sophon.asset import ZstdDecompressionStream
+
 
 class TestZstdDecompressionStream:
     @pytest.mark.asyncio
@@ -17,16 +17,16 @@ class TestZstdDecompressionStream:
 
         # Mock aiohttp.StreamReader
         mock_reader = AsyncMock(spec=aiohttp.StreamReader)
-        
+
         # Simulate reading in two chunks
         split_point = len(compressed_data) // 2
         chunk1 = compressed_data[:split_point]
         chunk2 = compressed_data[split_point:]
-        
+
         mock_reader.read.side_effect = [chunk1, chunk2] + [b""] * 10
 
         stream = ZstdDecompressionStream(mock_reader)
-        
+
         # Read the decompressed data
         result = b""
         while True:
@@ -36,7 +36,7 @@ class TestZstdDecompressionStream:
             result += chunk
 
         assert result == data
-        
+
     @pytest.mark.asyncio
     async def test_read_all(self):
         # Create some compressed data
@@ -48,7 +48,7 @@ class TestZstdDecompressionStream:
         mock_reader.read.side_effect = [compressed_data, b""]
 
         stream = ZstdDecompressionStream(mock_reader)
-        
+
         # Read all at once
         result = await stream.read(-1)
         assert result == data

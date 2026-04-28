@@ -119,7 +119,7 @@ class SophonManifest:
             if is_throw_if_not_found:
                 raise ValueError(f"Invalid API response: Expected dict, got {type(json_data).__name__}")
             return SophonChunkManifestInfoPair(is_found=False, return_message="Invalid API response")
-        
+
         if "retcode" not in json_data:
             if is_throw_if_not_found:
                 raise ValueError("Invalid API response: Missing 'retcode' field")
@@ -135,7 +135,7 @@ class SophonManifest:
             if is_throw_if_not_found:
                 raise ValueError("Invalid API response: Missing or invalid 'data' field")
             return SophonChunkManifestInfoPair(is_found=False, return_message="Missing data field")
-        
+
         data = json_data["data"]
         if "manifests" not in data or not isinstance(data["manifests"], list):
             if is_throw_if_not_found:

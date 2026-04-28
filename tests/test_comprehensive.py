@@ -16,10 +16,8 @@ Target: Python 3.13
 import asyncio
 import hashlib
 import io
-import os
 import tempfile
 from pathlib import Path
-from typing import AsyncGenerator, List, Tuple
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
@@ -27,7 +25,7 @@ import pytest
 import zstandard
 from aioresponses import aioresponses
 
-from sophon.asset import SophonAsset, SourceStreamType, ZstdDecompressionStream
+from sophon.asset import SophonAsset, ZstdDecompressionStream
 from sophon.chunk import ParallelOptions, SophonChunk
 from sophon.exceptions import (
     ChunkVerificationError,
@@ -40,8 +38,6 @@ from sophon.exceptions import (
 from sophon.manifest import SophonManifest
 from sophon.patch import SophonPatchAsset, SophonPatchMethod
 from sophon.proto.SophonManifestProto_pb2 import (
-    SophonManifestAssetChunk,
-    SophonManifestAssetProperty,
     SophonManifestProto,
 )
 from sophon.speed_limiter import SophonDownloadSpeedLimiter
@@ -51,7 +47,6 @@ from sophon.types import (
     SophonManifestInfo,
 )
 from sophon.update import SophonUpdate
-
 
 # ============================================================================
 # FIXTURES AND HELPERS
@@ -83,7 +78,7 @@ class TestDataGenerator:
         asset_name: str,
         asset_size: int,
         asset_hash: str,
-        chunks_data: List[Tuple[str, int, str]],
+        chunks_data: list[tuple[str, int, str]],
     ) -> bytes:
         """Create a mock manifest protobuf."""
         proto = SophonManifestProto()
@@ -869,7 +864,7 @@ class TestSpeedLimiter:
             delegate_called = True
 
         SophonDownloadSpeedLimiter.set_add_bytes_or_wait_delegate(mock_delegate)
-        limiter = SophonDownloadSpeedLimiter.create_instance(999)
+        SophonDownloadSpeedLimiter.create_instance(999)
 
         assert SophonDownloadSpeedLimiter._add_bytes_or_wait_delegate is not None
 
