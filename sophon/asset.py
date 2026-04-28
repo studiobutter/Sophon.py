@@ -268,12 +268,14 @@ class SophonAsset(IdentifiableProperty):
                     async with semaphore:
                         await _download_diff_chunk(chunk)
 
-                tasks = [_bounded_download(chunk) for chunk in self.chunks]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                exceptions = [r for r in results if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError)]
-                if exceptions:
-                    raise DownloadError(f"Multiple errors during diff chunks downloads: {exceptions}") from exceptions[0]
+                tasks = [asyncio.create_task(_bounded_download(chunk)) for chunk in self.chunks]
+                try:
+                    await asyncio.gather(*tasks, return_exceptions=False)
+                except Exception:
+                    for task in tasks:
+                        if not task.done():
+                            task.cancel()
+                    raise
 
             else:
                 for chunk in self.chunks:
@@ -325,22 +327,23 @@ class SophonAsset(IdentifiableProperty):
 
         old_path = os.path.join(old_input_dir, self.asset_name)
         new_path = os.path.join(new_output_dir, self.asset_name)
+        temp_new_path = f"{new_path}.tmp"
 
         if not os.path.exists(old_path) and any(c.chunk_old_offset != -1 for c in self.chunks):
             raise ValueError(f"Old file not found: {old_path}")
 
         os.makedirs(os.path.dirname(new_path) or ".", exist_ok=True)
         try:
-            with open(new_path, "wb") as f:
+            with open(temp_new_path, "wb") as f:
                 if self.asset_size > 0:
                     f.truncate(self.asset_size)
         except OSError as e:
-            raise OSError(f"Failed to create new file at {new_path}: {e}")
+            raise OSError(f"Failed to create new file at {temp_new_path}: {e}")
 
         old_stream = None
         try:
             old_stream = open(old_path, "rb") if os.path.exists(old_path) else None
-            with open(new_path, "r+b") as new_stream:
+            with open(temp_new_path, "r+b") as new_stream:
                 for chunk in self.chunks:
                     if chunk.chunk_old_offset != -1:
                         await self._perform_write_stream_thread_async(
@@ -386,13 +389,25 @@ class SophonAsset(IdentifiableProperty):
                                 except OSError:
                                     pass
 
+            os.replace(temp_new_path, new_path)
+
             if download_complete_delegate:
                 download_complete_delegate(self.asset_name)
 
         except asyncio.CancelledError:
+            if os.path.exists(temp_new_path):
+                try:
+                    os.remove(temp_new_path)
+                except OSError:
+                    pass
             raise
         except Exception as e:
             logger.error(f"Failed to apply update for {self.asset_name}: {e}")
+            if os.path.exists(temp_new_path):
+                try:
+                    os.remove(temp_new_path)
+                except OSError:
+                    pass
             raise DownloadError(f"Failed to apply update: {e}") from e
         finally:
             if old_stream:

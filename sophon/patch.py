@@ -129,15 +129,17 @@ class SophonPatchAsset(IdentifiableProperty):
             download_speed_limiter=download_speed_limiter
         )
 
+        temp_patch_file_path = f"{patch_file_path}.tmp"
+
         try:
-            with open(patch_file_path, "wb") as f_out:
+            with open(temp_patch_file_path, "wb") as f_out:
                 pass
 
             def download_info_wrapper(read_bytes: int, net_bytes: int):
                 if download_read_delegate:
                     download_read_delegate(net_bytes)
 
-            with open(patch_file_path, "r+b") as stream:
+            with open(temp_patch_file_path, "r+b") as stream:
                 await temp_asset._inner_write_stream_to_async(
                     client=client,
                     source_stream=None,
@@ -148,9 +150,23 @@ class SophonPatchAsset(IdentifiableProperty):
                     download_info_delegate=download_info_wrapper,
                     token=token
                 )
+            
+            os.replace(temp_patch_file_path, patch_file_path)
             return True
+        except asyncio.CancelledError:
+            if os.path.exists(temp_patch_file_path):
+                try:
+                    os.remove(temp_patch_file_path)
+                except OSError:
+                    pass
+            raise
         except Exception as e:
             logger.error(f"Failed to download patch chunk {self.patch_name_source}: {e}")
+            if os.path.exists(temp_patch_file_path):
+                try:
+                    os.remove(temp_patch_file_path)
+                except OSError:
+                    pass
             raise
 
     async def apply_patch_update_async(
@@ -428,13 +444,24 @@ class SophonPatch:
         except Exception as e:
             return SophonChunkManifestInfoPair(is_found=False, return_message=str(e))
 
-        manifests = []
-        if "data" in json_data and "manifests" in json_data["data"]:
-            manifests = json_data["data"]["manifests"]
-        elif "manifests" in json_data:
-            manifests = json_data["manifests"]
-        elif isinstance(json_data, list):
-            manifests = json_data
+        if not isinstance(json_data, dict):
+            return SophonChunkManifestInfoPair(is_found=False, return_message="Invalid API response")
+
+        if "retcode" not in json_data:
+            return SophonChunkManifestInfoPair(is_found=False, return_message="Missing retcode")
+
+        if json_data["retcode"] != 0:
+            error_msg = json_data.get("message", "Unknown API error")
+            return SophonChunkManifestInfoPair(is_found=False, return_message=f"API error: {error_msg}")
+
+        if "data" not in json_data or not isinstance(json_data["data"], dict):
+            return SophonChunkManifestInfoPair(is_found=False, return_message="Missing data field")
+
+        data = json_data["data"]
+        if "manifests" not in data or not isinstance(data["manifests"], list):
+            return SophonChunkManifestInfoPair(is_found=False, return_message="Missing manifests field")
+
+        manifests = data["manifests"]
 
         target_manifest = None
         for m in manifests:
@@ -451,27 +478,29 @@ class SophonPatch:
         if not target_manifest:
             return SophonChunkManifestInfoPair(is_found=False, return_message="Patch not found")
 
-        md = target_manifest.get("patch_download", target_manifest)
-        cd = target_manifest.get("chunk_download", target_manifest)
+        patch_manifest = target_manifest.get("patch", {})
+        md = target_manifest.get("patch_download", {})
+        cd = target_manifest.get("chunk_download", {})
+        stats = target_manifest.get("stats", {})
 
         from .manifest import SophonManifest
         manifest_info = SophonManifest.create_manifest_info(
             manifest_base_url=md.get("url_prefix", ""),
-            manifest_checksum_md5=md.get("checksum", ""),
-            manifest_id=md.get("manifest_id", ""),
-            is_use_compression=md.get("is_compressed", False),
-            manifest_size=md.get("uncompressed_size", 0),
-            manifest_compressed_size=md.get("size", 0),
+            manifest_checksum_md5=patch_manifest.get("checksum", ""),
+            manifest_id=patch_manifest.get("id", ""),
+            is_use_compression=md.get("compression", 0) == 1,
+            manifest_size=int(patch_manifest.get("uncompressed_size", 0) or 0),
+            manifest_compressed_size=int(patch_manifest.get("compressed_size", 0) or 0),
             matching_field=matching_field,
         )
 
         chunks_info = SophonManifest.create_chunks_info(
             chunks_base_url=cd.get("url_prefix", ""),
-            chunks_count=cd.get("chunk_count", 0),
-            files_count=cd.get("file_count", 0),
-            is_use_compression=cd.get("is_compressed", False),
-            total_size=cd.get("uncompressed_size", 0),
-            total_compressed_size=cd.get("size", 0),
+            chunks_count=int(stats.get("chunk_count", 0) or 0),
+            files_count=int(stats.get("file_count", 0) or 0),
+            is_use_compression=cd.get("compression", 0) == 1,
+            total_size=int(stats.get("uncompressed_size", 0) or 0),
+            total_compressed_size=int(stats.get("compressed_size", 0) or 0),
             matching_field=matching_field,
         )
 

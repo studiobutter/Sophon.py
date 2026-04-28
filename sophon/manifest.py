@@ -115,13 +115,34 @@ class SophonManifest:
                 raise ValueError(f"Failed to fetch manifest pair: {e}") from e
             return SophonChunkManifestInfoPair(is_found=False, return_message=str(e))
 
-        manifests = []
-        if "data" in json_data and "manifests" in json_data["data"]:
-            manifests = json_data["data"]["manifests"]
-        elif "manifests" in json_data:
-            manifests = json_data["manifests"]
-        elif isinstance(json_data, list):
-            manifests = json_data
+        if not isinstance(json_data, dict):
+            if is_throw_if_not_found:
+                raise ValueError(f"Invalid API response: Expected dict, got {type(json_data).__name__}")
+            return SophonChunkManifestInfoPair(is_found=False, return_message="Invalid API response")
+        
+        if "retcode" not in json_data:
+            if is_throw_if_not_found:
+                raise ValueError("Invalid API response: Missing 'retcode' field")
+            return SophonChunkManifestInfoPair(is_found=False, return_message="Missing retcode")
+
+        if json_data["retcode"] != 0:
+            error_msg = json_data.get("message", "Unknown API error")
+            if is_throw_if_not_found:
+                raise ValueError(f"API error ({json_data['retcode']}): {error_msg}")
+            return SophonChunkManifestInfoPair(is_found=False, return_message=f"API error: {error_msg}")
+
+        if "data" not in json_data or not isinstance(json_data["data"], dict):
+            if is_throw_if_not_found:
+                raise ValueError("Invalid API response: Missing or invalid 'data' field")
+            return SophonChunkManifestInfoPair(is_found=False, return_message="Missing data field")
+        
+        data = json_data["data"]
+        if "manifests" not in data or not isinstance(data["manifests"], list):
+            if is_throw_if_not_found:
+                raise ValueError("Invalid API response: Missing or invalid 'manifests' field")
+            return SophonChunkManifestInfoPair(is_found=False, return_message="Missing manifests field")
+
+        manifests = data["manifests"]
 
         target_manifest = None
         for m in manifests:
@@ -134,27 +155,28 @@ class SophonManifest:
                 raise ValueError(f"Manifest with matching_field '{matching_field}' not found")
             return SophonChunkManifestInfoPair(is_found=False, return_message="Not found")
 
-        manifest_data = target_manifest.get("manifest", target_manifest)
-        md = manifest_data.get("manifest_download", {})
-        cd = manifest_data.get("chunk_download", {})
+        manifest_data = target_manifest.get("manifest", {})
+        md = target_manifest.get("manifest_download", {})
+        cd = target_manifest.get("chunk_download", {})
+        stats = target_manifest.get("stats", {})
 
         manifest_info = SophonManifest.create_manifest_info(
             manifest_base_url=md.get("url_prefix", ""),
-            manifest_checksum_md5=md.get("checksum", ""),
-            manifest_id=md.get("manifest_id", ""),
-            is_use_compression=md.get("is_compressed", False),
-            manifest_size=md.get("uncompressed_size", 0),
-            manifest_compressed_size=md.get("size", 0),
+            manifest_checksum_md5=manifest_data.get("checksum", ""),
+            manifest_id=manifest_data.get("id", ""),
+            is_use_compression=md.get("compression", 0) == 1,
+            manifest_size=int(manifest_data.get("uncompressed_size", 0) or 0),
+            manifest_compressed_size=int(manifest_data.get("compressed_size", 0) or 0),
             matching_field=matching_field,
         )
 
         chunks_info = SophonManifest.create_chunks_info(
             chunks_base_url=cd.get("url_prefix", ""),
-            chunks_count=cd.get("chunk_count", 0),
-            files_count=cd.get("file_count", 0),
-            is_use_compression=cd.get("is_compressed", False),
-            total_size=cd.get("uncompressed_size", 0),
-            total_compressed_size=cd.get("size", 0),
+            chunks_count=int(stats.get("chunk_count", 0) or 0),
+            files_count=int(stats.get("file_count", 0) or 0),
+            is_use_compression=cd.get("compression", 0) == 1,
+            total_size=int(stats.get("uncompressed_size", 0) or 0),
+            total_compressed_size=int(stats.get("compressed_size", 0) or 0),
             matching_field=matching_field,
         )
 
