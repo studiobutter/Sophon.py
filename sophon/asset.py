@@ -325,8 +325,16 @@ class SophonAsset(IdentifiableProperty):
         if token is None:
             token = asyncio.CancelledError()
 
-        old_path = os.path.join(old_input_dir, self.asset_name)
-        new_path = os.path.join(new_output_dir, self.asset_name)
+        base_old = os.path.abspath(old_input_dir)
+        old_path = os.path.abspath(os.path.join(old_input_dir, self.asset_name))
+        if not old_path.startswith(base_old):
+            raise ValueError(f"Path traversal attempt detected: {self.asset_name}")
+
+        base_new = os.path.abspath(new_output_dir)
+        new_path = os.path.abspath(os.path.join(new_output_dir, self.asset_name))
+        if not new_path.startswith(base_new):
+            raise ValueError(f"Path traversal attempt detected: {self.asset_name}")
+
         temp_new_path = f"{new_path}.tmp"
 
         if not os.path.exists(old_path) and any(c.chunk_old_offset != -1 for c in self.chunks):
@@ -483,6 +491,7 @@ class SophonAsset(IdentifiableProperty):
         download_info_delegate: Optional[Callable[[int, int], None]],
         token: asyncio.CancelledError,
         write_offset: int = -1,
+        stream_lock: Optional[asyncio.Lock] = None,
     ) -> None:
         """
         Core download logic with retries and error handling.
@@ -496,6 +505,8 @@ class SophonAsset(IdentifiableProperty):
             write_info_delegate: Write progress callback.
             download_info_delegate: Download progress callback.
             token: Cancellation token.
+            write_offset: Offset to write at.
+            stream_lock: Optional lock for concurrent stream access.
         """
         if (
             source_stream_type != SourceStreamType.INTERNET
@@ -513,6 +524,7 @@ class SophonAsset(IdentifiableProperty):
                 "OldReference mode requires chunk to have chunk_old_offset set"
             )
 
+        actual_offset = write_offset if write_offset != -1 else chunk.chunk_offset
         current_retry = 0
         current_write_offset = 0
         current_source_stream_type = source_stream_type
@@ -531,7 +543,8 @@ class SophonAsset(IdentifiableProperty):
                     f"for chunk: {chunk.chunk_name}"
                 )
 
-                out_stream.seek(chunk.chunk_offset)
+                if not stream_lock:
+                    out_stream.seek(actual_offset)
 
                 md5_hash = hashlib.md5()
                 buffer = bytearray(self.BUFFER_SIZE)
@@ -554,14 +567,15 @@ class SophonAsset(IdentifiableProperty):
                         if self.sophon_chunks_info.is_use_compression:
                             current_source_stream = ZstdDecompressionStream(http_response.content)
 
-                    except aiohttp.ClientError as e:
+                    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                         if current_retry < DEFAULT_RETRY_ATTEMPTS:
+                            wait_time = DEFAULT_TIMEOUT_SECONDS * (1.5 ** current_retry)
                             current_retry += 1
                             logger.warning(
                                 f"Network error downloading chunk {chunk.chunk_name}: {e}. "
-                                f"Retry {current_retry}/{DEFAULT_RETRY_ATTEMPTS}"
+                                f"Retry {current_retry}/{DEFAULT_RETRY_ATTEMPTS} after {wait_time}s"
                             )
-                            await asyncio.sleep(1)
+                            await asyncio.sleep(wait_time)
                             if http_response:
                                 http_response.close()
                             continue
@@ -600,6 +614,7 @@ class SophonAsset(IdentifiableProperty):
 
                     if not data and remain > 0:
                         if current_retry < DEFAULT_RETRY_ATTEMPTS:
+                            wait_time = DEFAULT_TIMEOUT_SECONDS * (1.5 ** current_retry)
                             current_retry += 1
                             if write_info_delegate:
                                 write_info_delegate(-current_write_offset)
@@ -608,9 +623,9 @@ class SophonAsset(IdentifiableProperty):
                             current_write_offset = 0
                             logger.warning(
                                 f"Incomplete read for chunk {chunk.chunk_name}. "
-                                f"Retry {current_retry}/{DEFAULT_RETRY_ATTEMPTS}"
+                                f"Retry {current_retry}/{DEFAULT_RETRY_ATTEMPTS} after {wait_time}s"
                             )
-                            await asyncio.sleep(1)
+                            await asyncio.sleep(wait_time)
                             break
                         raise DownloadError(
                             f"Incomplete chunk download: {remain} bytes remaining"
@@ -620,7 +635,13 @@ class SophonAsset(IdentifiableProperty):
                         if self.download_speed_limiter:
                             await self.download_speed_limiter.add_bytes_or_wait_async(len(data), token)
 
-                    out_stream.write(data)
+                    if stream_lock:
+                        async with stream_lock:
+                            out_stream.seek(actual_offset + current_write_offset)
+                            out_stream.write(data)
+                    else:
+                        out_stream.write(data)
+                        
                     current_write_offset += len(data)
                     remain -= len(data)
                     md5_hash.update(data)
@@ -676,14 +697,15 @@ class SophonAsset(IdentifiableProperty):
                     if last_source_stream_type != SourceStreamType.OLD_REFERENCE and download_info_delegate:
                         download_info_delegate(-current_write_offset, 0)
 
+                    wait_time = DEFAULT_TIMEOUT_SECONDS * (1.5 ** current_retry)
                     current_write_offset = 0
                     current_retry += 1
 
                     logger.warning(
                         f"Error downloading chunk {chunk.chunk_name}: {ex}. "
-                        f"Retry {current_retry}/{DEFAULT_RETRY_ATTEMPTS}"
+                        f"Retry {current_retry}/{DEFAULT_RETRY_ATTEMPTS} after {wait_time}s"
                     )
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(wait_time)
                     continue
 
                 allow_dispose = True

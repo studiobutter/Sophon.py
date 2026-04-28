@@ -206,10 +206,19 @@ class SophonPatchAsset(IdentifiableProperty):
         if token is None:
             token = asyncio.CancelledError()
 
+        base_input_dir = os.path.abspath(input_dir)
+        base_patch_dir = os.path.abspath(patch_output_dir)
+
+        def _get_safe_path(base_dir, file_path):
+            full_path = os.path.abspath(os.path.join(base_dir, file_path))
+            if not full_path.startswith(base_dir):
+                raise ValueError(f"Path traversal attempt detected: {file_path}")
+            return full_path
+
         if self.patch_method == SophonPatchMethod.REMOVE:
             if not remove_old_assets:
                 return
-            original_path = os.path.join(input_dir, self.original_file_path)
+            original_path = _get_safe_path(base_input_dir, self.original_file_path)
             if os.path.exists(original_path):
                 try:
                     os.remove(original_path)
@@ -219,7 +228,7 @@ class SophonPatchAsset(IdentifiableProperty):
             return
 
         elif self.patch_method == SophonPatchMethod.DOWNLOAD_OVER:
-            target_path = os.path.join(input_dir, self.target_file_path)
+            target_path = _get_safe_path(base_input_dir, self.target_file_path)
             temp_target_path = f"{target_path}.temp"
             os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
 
@@ -245,9 +254,9 @@ class SophonPatchAsset(IdentifiableProperty):
             return
 
         elif self.patch_method == SophonPatchMethod.COPY_OVER:
-            target_path = os.path.join(input_dir, self.target_file_path)
+            target_path = _get_safe_path(base_input_dir, self.target_file_path)
             temp_target_path = f"{target_path}.temp"
-            patch_file = os.path.join(patch_output_dir, self.patch_name_source)
+            patch_file = _get_safe_path(base_patch_dir, self.patch_name_source)
             os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
 
             try:
@@ -277,10 +286,10 @@ class SophonPatchAsset(IdentifiableProperty):
             return
 
         elif self.patch_method == SophonPatchMethod.PATCH:
-            target_path = os.path.join(input_dir, self.target_file_path)
+            target_path = _get_safe_path(base_input_dir, self.target_file_path)
             temp_target_path = f"{target_path}.temp"
-            original_path = os.path.join(input_dir, self.original_file_path)
-            patch_file = os.path.join(patch_output_dir, self.patch_name_source)
+            original_path = _get_safe_path(base_input_dir, self.original_file_path)
+            patch_file = _get_safe_path(base_patch_dir, self.patch_name_source)
             os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
 
             hpatchz_path = os.environ.get("HPATCHZ_PATH", "hpatchz")
