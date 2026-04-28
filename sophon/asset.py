@@ -78,7 +78,7 @@ class SophonAsset(IdentifiableProperty):
     sophon_chunks_info: Optional[SophonChunksInfo] = None
     sophon_chunks_info_alt: Optional[SophonChunksInfo] = None
 
-    BUFFER_SIZE = 4 * 1024  # 4 KB buffer
+    BUFFER_SIZE = 512 * 1024  # 512 KB buffer for optimal SSD/HDD performance
 
     def _validate_chunks_state(self) -> None:
         """Validate that chunks are properly initialized."""

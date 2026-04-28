@@ -18,7 +18,7 @@ class SophonChunk:
     chunk_old_offset: int = -1  # -1 means no reference to old file
     is_skip_hash_check_on_write: bool = False
 
-    BUFFER_SIZE = 4 * 1024  # 4 KB buffer
+    BUFFER_SIZE = 512 * 1024  # 512 KB buffer for optimal SSD/HDD performance
 
     def __post_init__(self) -> None:
         """Validate chunk after initialization."""
